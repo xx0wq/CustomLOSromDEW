@@ -16,7 +16,6 @@ jobs:
           sudo rm -rf /usr/local/lib/android
           sudo rm -rf /opt/ghc
           sudo apt-get clean
-          echo "Disk space cleaned."
 
       - name: Install Android Build Dependencies
         run: |
@@ -37,16 +36,13 @@ jobs:
           mkdir -p ~/android/lineage
           cd ~/android/lineage
           
-          # Ініціалізація вашого репозиторію маніфесту lineage-23.2
           repo init -u https://github.com/${{ github.repository }}.git -b lineage-23.2 --git-lfs
           
-          # Копіювання ваших roomservice/local_manifests з поточного репозиторію (якщо наявні)
           if [ -d "$GITHUB_WORKSPACE/.repo/local_manifests" ]; then
             mkdir -p .repo/local_manifests
             cp -r $GITHUB_WORKSPACE/.repo/local_manifests/* .repo/local_manifests/
           fi
 
-          # Викачування абсолютно всіх джерел коду
           repo sync -c -j$(nproc) --force-sync --no-clone-bundle --no-tags
 
       - name: Setup Ccache
@@ -59,8 +55,6 @@ jobs:
         run: |
           cd ~/android/lineage
           source build/envsetup.sh
-          
-          # Запускаємо збірку під ваш цільовий пристрій
           lunch lineage_dew-user
           mka bacon -j$(nproc)
 
