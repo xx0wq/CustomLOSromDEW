@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<manifest>
+  <project name="LineageOS-MT6768/android_device_xiaomi_dew" path="device/xiaomi/dew" remote="github" revision="lineage-21.0" />
+  <project name="LineageOS-MT6768/android_vendor_xiaomi_dew" path="vendor/xiaomi/dew" remote="github" revision="lineage-21.0" />
+  <project name="LineageOS-MT6768/android_kernel_xiaomi_mt6768" path="kernel/xiaomi/mt6768" remote="github" revision="lineage-21.0" />
+  <project name="LineageOS-MT6768/android_device_mediatek_sepolicy_vndr" path="device/mediatek/sepolicy_vndr" remote="github" revision="lineage-21.0" />
+</manifest>
