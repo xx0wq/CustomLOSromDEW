@@ -1,0 +1,74 @@
+name: Full LineageOS 23.2 Build Pipeline
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Workflow Repository
+        uses: actions/checkout@v4
+
+      - name: Free Disk Space
+        run: |
+          sudo rm -rf /usr/share/dotnet
+          sudo rm -rf /usr/local/lib/android
+          sudo rm -rf /opt/ghc
+          sudo apt-get clean
+          echo "Disk space cleaned."
+
+      - name: Install Android Build Dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y bc bison build-essential ccache curl flex g++-multilib gcc-multilib git gnupg gperf imagemagick lib32ncurses5-dev lib32readline-dev lib32z1-dev liblz4-tool libncurses5 libncurses5-dev libsdl1.2-dev libssl-dev libxml2 libxml2-utils lzop pngcrush rsync schedtool squashfs-tools xsltproc zip zlib1g-dev python-is-python3
+
+      - name: Install Repo Tool
+        run: |
+          mkdir -p ~/bin
+          curl https://storage.googleapis.com/git-repo-downloads/repo > ~/bin/repo
+          chmod a+x ~/bin/repo
+          echo "$HOME/bin" >> $GITHUB_PATH
+
+      - name: Initialize Source Code & Local Manifests
+        run: |
+          git config --global user.name "GitHub Actions"
+          git config --global user.email "actions@github.com"
+          mkdir -p ~/android/lineage
+          cd ~/android/lineage
+          
+          # Ініціалізація вашого репозиторію маніфесту lineage-23.2
+          repo init -u https://github.com/${{ github.repository }}.git -b lineage-23.2 --git-lfs
+          
+          # Копіювання ваших roomservice/local_manifests з поточного репозиторію (якщо наявні)
+          if [ -d "$GITHUB_WORKSPACE/.repo/local_manifests" ]; then
+            mkdir -p .repo/local_manifests
+            cp -r $GITHUB_WORKSPACE/.repo/local_manifests/* .repo/local_manifests/
+          fi
+
+          # Викачування абсолютно всіх джерел коду
+          repo sync -c -j$(nproc) --force-sync --no-clone-bundle --no-tags
+
+      - name: Setup Ccache
+        run: |
+          echo "USE_CCACHE=1" >> $GITHUB_ENV
+          echo "CCACHE_EXEC=/usr/bin/ccache" >> $GITHUB_ENV
+          ccache -M 30G
+
+      - name: Compile ROM Output
+        run: |
+          cd ~/android/lineage
+          source build/envsetup.sh
+          
+          # Запускаємо збірку під ваш цільовий пристрій
+          lunch lineage_dew-user
+          mka bacon -j$(nproc)
+
+      - name: Upload Output Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: LineageOS-23.2-Build
+          path: |
+            ~/android/lineage/out/target/product/dew/*.zip
+            ~/android/lineage/out/target/product/dew/boot.img
+            ~/android/lineage/out/target/product/dew/recovery.img
