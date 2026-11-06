@@ -48,15 +48,15 @@ jobs:
           mkdir -p ~/android/lineage
           cd ~/android/lineage
           
-          repo init -u https://github.com/LineageOS/android.git -b lineage-23.2 --git-lfs
+          # Використовуємо --depth=1 тут, під час init
+          repo init -u https://github.com/LineageOS/android.git -b lineage-23.2 --git-lfs --depth=1
           
           mkdir -p .repo/local_manifests
           if [ -d "$GITHUB_WORKSPACE/.repo/local_manifests" ]; then
             cp -r $GITHUB_WORKSPACE/.repo/local_manifests/* .repo/local_manifests/
           fi
 
-          # Використовуємо --depth=1 для зменшення об'єму завантаження (економить місце на диску)
-          repo sync -c -j$(nproc) --force-sync --no-clone-bundle --no-tags --depth=1
+          repo sync -c -j$(nproc) --force-sync --no-clone-bundle --no-tags
 
       - name: Setup Ccache Directory & Restore Cache
         uses: actions/cache@v4
