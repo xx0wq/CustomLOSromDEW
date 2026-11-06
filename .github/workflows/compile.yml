@@ -10,15 +10,24 @@ jobs:
       - name: Checkout Workflow Repository
         uses: actions/checkout@v4
 
-      - name: Free Disk Space
+      - name: Free Disk Space Aggressively
         run: |
           sudo rm -rf /usr/local/lib/android &
           sudo rm -rf /usr/share/dotnet &
           sudo rm -rf /opt/ghc &
           sudo rm -rf /usr/local/share/boost &
           sudo rm -rf /usr/local/share/powershell &
-          wait
+          sudo rm -rf /usr/share/swift &
+          sudo rm -rf /usr/local/julia* &
+          sudo rm -rf /opt/pipx &
+          sudo rm -rf /usr/lib/llvm* &
+          sudo rm -rf /usr/local/lib/node_modules &
+          sudo apt-get remove -y '^dotnet-*' '^hibule-*' '^llvm-*' '^php*' '^mysql*' '^postgresql*' '^mongodb*' azure-cli google-cloud-cli 2>/dev/null || true
+          sudo apt-get autoremove -y
           sudo apt-get clean
+          wait
+          echo "Available disk space after aggressive cleanup:"
+          df -h
 
       - name: Install Android Build Dependencies
         run: |
@@ -46,17 +55,30 @@ jobs:
             cp -r $GITHUB_WORKSPACE/.repo/local_manifests/* .repo/local_manifests/
           fi
 
-          repo sync -c -j$(nproc) --force-sync --no-clone-bundle --no-tags
+          # Використовуємо --depth=1 для зменшення об'єму завантаження (економить місце на диску)
+          repo sync -c -j$(nproc) --force-sync --no-clone-bundle --no-tags --depth=1
 
-      - name: Setup Ccache
+      - name: Setup Ccache Directory & Restore Cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.ccache
+          key: ccache-${{ github.sha }}-${{ github.run_id }}
+          restore-keys: |
+            ccache-${{ github.sha }}
+            ccache-
+
+      - name: Setup Ccache Environment
         run: |
           echo "USE_CCACHE=1" >> $GITHUB_ENV
           echo "CCACHE_EXEC=/usr/bin/ccache" >> $GITHUB_ENV
-          ccache -M 30G
+          export CCACHE_DIR=~/.ccache
+          ccache -M 20G
+          ccache -s
 
       - name: Compile ROM Output
         run: |
           cd ~/android/lineage
+          export CCACHE_DIR=~/.ccache
           source build/envsetup.sh
           lunch lineage_dew-user
           mka bacon -j$(nproc)
