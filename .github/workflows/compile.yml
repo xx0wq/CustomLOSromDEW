@@ -1,102 +1,100 @@
-name: Full LineageOS 23.2 Build Pipeline
+name: LineageOS 23.2 for dew (free runner)
 
 on:
   workflow_dispatch:
+  push:
+    tags: ['v*']
+
+concurrency:
+  group: dew-build-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04          # 24.04 has broken deps for LOS 23.2
+    timeout-minutes: 350           # free runners die at 360
     steps:
-      - name: Checkout Workflow Repository
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Free Disk Space Aggressively
-        run: |
-          sudo rm -rf /usr/local/lib/android &
-          sudo rm -rf /usr/share/dotnet &
-          sudo rm -rf /opt/ghc &
-          sudo rm -rf /usr/local/share/boost &
-          sudo rm -rf /usr/local/share/powershell &
-          sudo rm -rf /usr/share/swift &
-          sudo rm -rf /usr/local/julia* &
-          sudo rm -rf /opt/pipx &
-          sudo rm -rf /usr/lib/llvm* &
-          sudo rm -rf /usr/local/lib/node_modules &
-          sudo apt-get remove -y '^dotnet-*' '^hibule-*' '^llvm-*' '^php*' '^mysql*' '^postgresql*' '^mongodb*' azure-cli google-cloud-cli 2>/dev/null || true
-          sudo apt-get autoremove -y
-          sudo apt-get clean
-          wait
-          echo "Available disk space after cleanup:"
-          df -h
-
-      - name: Cache Android build dependency packages
-        uses: actions/cache@v4
+      - name: Free disk space
+        uses: easimon/maximize-build-space@master
         with:
-          path: ~/apt-cache/archives
-          key: android-apt-${{ runner.os }}-${{ hashFiles('.github/workflows/compile.yml') }}
-          restore-keys: |
-            android-apt-${{ runner.os }}-
+          root-reserve-mb: 4096
+          swap-size-mb: 8192
+          remove-dotnet: true
+          remove-android: true
+          remove-haskell: true
+          remove-codeql: true
 
-      - name: Install Android Build Dependencies
-        run: |
-          mkdir -p "$HOME/apt-cache/archives/partial"
-          sudo chown -R "$USER":"$USER" "$HOME/apt-cache"
-          sudo apt-get -o Dir::Cache::archives="$HOME/apt-cache/archives" update
-          sudo apt-get -o Dir::Cache::archives="$HOME/apt-cache/archives" install -y \
-            bc bison build-essential ccache curl flex g++-multilib gcc-multilib git git-lfs \
-            gnupg gperf imagemagick lib32readline-dev lib32z1-dev libelf-dev \
-            libncurses-dev libssl-dev libxml2-utils lzop pngcrush python-is-python3 \
-            rsync schedtool squashfs-tools xsltproc zip zlib1g-dev openjdk-17-jdk
+      - name: Show disk
+        run: df -h /
 
-      - name: Install Repo Tool
+      - name: Install deps
         run: |
+          sudo apt-get update
+          sudo apt-get install -y bc bison build-essential curl flex \
+            g++-multilib gcc-multilib git git-lfs gnupg gperf imagemagick \
+            lib32readline-dev lib32z1-dev libelf-dev liblz4-tool \
+            libsdl1.2-dev libssl-dev libxml2 libxml2-utils lzop pngcrush \
+            rsync schedtool squashfs-tools xsltproc zip zlib1g-dev \
+            python3 python-is-python3
+
+      - name: Configure git + repo
+        run: |
+          git config --global user.name  "${{ github.actor }}"
+          git config --global user.email "${{ github.actor }}@users.noreply.github.com"
+          git lfs install
           mkdir -p ~/bin
           curl -fsSL https://storage.googleapis.com/git-repo-downloads/repo -o ~/bin/repo
           chmod a+x ~/bin/repo
           echo "$HOME/bin" >> "$GITHUB_PATH"
 
-      - name: Initialize Source Code & Local Manifests
+      - name: Init + sync (retries, shallow)
         run: |
-          git config --global user.name "GitHub Actions"
-          git config --global user.email "actions@github.com"
-          mkdir -p ~/android/lineage
-          cd ~/android/lineage
-
-          repo init -u https://github.com/LineageOS/android.git -b lineage-23.2 --git-lfs --depth=1
+          set -o pipefail
+          mkdir -p ~/android/lineage && cd ~/android/lineage
+          repo init -u https://github.com/LineageOS/android.git \
+                    -b lineage-23.2 --git-lfs --depth=1
           mkdir -p .repo/local_manifests
-          cp "$GITHUB_WORKSPACE/.repo/local_manifests/roomservice.xml" .repo/local_manifests/roomservice.xml
-          repo sync -c -j4 --force-sync --no-clone-bundle --no-tags
+          cp "$GITHUB_WORKSPACE/.repo/local_manifests/roomservice.xml" \
+             .repo/local_manifests/roomservice.xml
 
-      - name: Setup Ccache Directory & Restore Cache
-        uses: actions/cache@v4
-        with:
-          path: ~/.ccache
-          key: ccache-${{ runner.os }}-${{ github.ref_name }}-${{ github.sha }}
-          restore-keys: |
-            ccache-${{ runner.os }}-${{ github.ref_name }}-
-            ccache-${{ runner.os }}-
+          for i in 1 2 3; do
+            echo "=== sync attempt $i ==="
+            repo sync -c -j4 --force-sync --no-clone-bundle --no-tags \
+                      --retry-fetches=5 && break
+            echo "sync failed, retrying"; sleep 30
+          done
+          repo sync -l -c -j4 || true
 
-      - name: Setup Ccache Environment
-        run: |
-          echo "USE_CCACHE=1" >> "$GITHUB_ENV"
-          echo "CCACHE_EXEC=/usr/bin/ccache" >> "$GITHUB_ENV"
-          echo "CCACHE_DIR=$HOME/.ccache" >> "$GITHUB_ENV"
-          ccache -M 20G
-          ccache -s
+          echo "=== disk after sync ==="
+          df -h / ; du -sh .repo
 
-      - name: Compile ROM Output
+      # If you still run out of disk, uncomment (breaks `repo` commands, not the build):
+      # - name: Reclaim .repo objects
+      #   run: rm -rf ~/android/lineage/.repo/project-objects
+
+      - name: Build
         run: |
           cd ~/android/lineage
           source build/envsetup.sh
-          lunch lineage_dew-user
-          mka bacon -j"$(nproc)"
+          lunch lineage_dew-userdebug
+          export USE_CCACHE=0
+          mka bacon -j4 2>&1 | tee build.log
+          echo "exit=${PIPESTATUS[0]}"
 
-      - name: Upload Output Artifacts
+      - name: Upload build log
+        if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: LineageOS-23.2-Build
-          path: |
-            ~/android/lineage/out/target/product/dew/*.zip
-            ~/android/lineage/out/target/product/dew/boot.img
-            ~/android/lineage/out/target/product/dew/recovery.img
-            
+          name: build-log
+          path: ~/android/lineage/build.log
+          retention-days: 3
+
+      # Artifacts count against the 500 MB quota -> publish a Release instead.
+      - name: Publish ROM as Release asset
+        if: success() && startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ~/android/lineage/out/target/product/dew/lineage-*.zip
+          fail_on_unmatched_files: true
