@@ -31,6 +31,10 @@ jobs:
 
       - name: Install deps
         run: |
+          sudo rm -rf /var/lib/apt/lists/*
+          sudo apt-get -o Acquire::Languages=none  
+          update                 
+          df -h /
           sudo apt-get update
           sudo apt-get install -y bc bison build-essential curl flex \
             g++-multilib gcc-multilib git git-lfs gnupg gperf imagemagick \
